@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, Pressable, Modal, TextInput, Animated, Alert,
-  StyleSheet, useColorScheme, SafeAreaView, Platform, StatusBar,
+  StyleSheet, useColorScheme, SafeAreaView, Platform, StatusBar, Share, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import Svg, { Defs, LinearGradient, Stop, Path, Rect, Circle, Ellipse, G } from 'react-native-svg';
 
 const KEY = 'habits-rn-v1';
+const PET_KEY = 'habits-rn-pets-v1';
 const INK = '#1d1b3a';
 const COL = ['#ff8a7a', '#ffd54a', '#5fe0b7', '#7cc4ff', '#b79cff', '#ff9ccf'];
 const DN = ['ح', 'ن', 'ث', 'ر', 'خ', 'ج', 'س'];
@@ -16,9 +17,32 @@ const GC = {
   P: ['#cdb8ff', '#6a3de0'], Y: ['#ffe985', '#f0a500'], K: ['#ffb3da', '#e0407f'],
   W: ['#ffffff', '#bfc6e6'],
 };
-// نفس رموز نسخة الويب، عشان الاستيراد يشتغل
 const EMO = { '💧': 'drop', '🏃': 'run', '📖': 'book', '🧘': 'lotus', '🍎': 'apple', '😴': 'moon', '💊': 'pill', '⭐': 'star' };
 const NAMES = ['drop', 'run', 'book', 'lotus', 'apple', 'moon', 'pill', 'star'];
+
+// ١٠ حيوانات أليفة تفتح مع الليفيل
+const PETS = [
+  { id: 'cat', name: 'قطة مشمش', unlockLvl: 1, body: 'G', ear: 'point', accent: '#ff9ccf' },
+  { id: 'dog', name: 'كلب بندق', unlockLvl: 2, body: 'Y', ear: 'flop', accent: '#d6282a' },
+  { id: 'bunny', name: 'أرنب سكر', unlockLvl: 3, body: 'W', ear: 'long', accent: '#ffb3da' },
+  { id: 'fox', name: 'ثعلب كرمة', unlockLvl: 4, body: 'R', ear: 'point', accent: '#ffe985' },
+  { id: 'panda', name: 'باندا ميشو', unlockLvl: 5, body: 'W', ear: 'round', accent: '#1d1b3a' },
+  { id: 'frog', name: 'ضفدع نونو', unlockLvl: 6, body: 'G', ear: 'round', accent: '#8ef0c0' },
+  { id: 'owl', name: 'بومة حكيم', unlockLvl: 7, body: 'P', ear: 'tuft', accent: '#ffd54a' },
+  { id: 'penguin', name: 'بطريق ثلج', unlockLvl: 8, body: 'B', ear: 'round', accent: '#ff9a8a' },
+  { id: 'dragon', name: 'تنين لهيب', unlockLvl: 9, body: 'K', ear: 'horn', accent: '#ffd54a' },
+  { id: 'unicorn', name: 'يونيكورن حلم', unlockLvl: 10, body: 'P', ear: 'horn', accent: '#5fe0b7' },
+];
+
+// إكسسوارات وملابس للحيوانات
+const WARDROBE = [
+  { id: 'none', name: 'بدون إكسسوار', cost: 0, slot: 'none' },
+  { id: 'scarf', name: 'وشاح دافي', cost: 60, slot: 'neck', color: '#ff8a7a' },
+  { id: 'bowtie', name: 'بابيون أنيق', cost: 90, slot: 'neck', color: '#ffd54a' },
+  { id: 'glasses', name: 'نظارة كول', cost: 130, slot: 'face', color: '#1d1b3a' },
+  { id: 'hat', name: 'قبعة حفلة', cost: 180, slot: 'head', color: '#7cc4ff' },
+  { id: 'crown', name: 'تاج ملكي', cost: 260, slot: 'head', color: '#ffd54a' },
+];
 
 const pad = (n) => (n < 10 ? '0' : '') + n;
 const dk = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
@@ -34,6 +58,40 @@ const streak = (h) => {
   return n;
 };
 const lvl = (tot) => Math.floor(Math.sqrt(tot / 10)) + 1;
+
+// تشفير وفك تشفير عربي آمن للرابط
+function encodeHabitsPayload(habits) {
+  const compact = habits.map((h) => ({
+    n: h.name,
+    e: h.e,
+    c: h.c || 0,
+    t: h.t || 1,
+  }));
+  const json = JSON.stringify({ v: 1, habits: compact });
+  return encodeURIComponent(json);
+}
+
+function decodeHabitsPayload(rawInput) {
+  const trimmed = (rawInput || '').trim();
+  if (!trimmed) throw new Error('empty');
+  let encodedPart = trimmed;
+  const match = trimmed.match(/[?&]d=([^&\s]+)/) || trimmed.match(/share\/([^?\s]+)/);
+  if (match && match[1]) {
+    encodedPart = match[1];
+  }
+  const decoded = decodeURIComponent(encodedPart);
+  const parsed = JSON.parse(decoded);
+  const list = Array.isArray(parsed) ? parsed : parsed.habits;
+  if (!Array.isArray(list) || !list.length) throw new Error('invalid');
+  return list.map((h) => ({
+    id: uid(),
+    name: String(h.n || h.name || '').slice(0, 30) || 'عادة',
+    e: NAMES.includes(h.e) ? h.e : (EMO[h.e] || 'star'),
+    c: typeof (h.c ?? h.color) === 'number' ? (h.c ?? h.color) : 0,
+    t: Math.max(1, parseInt(h.t ?? h.target, 10) || 1),
+    days: {},
+  }));
+}
 
 function Grads() {
   return (
@@ -106,57 +164,113 @@ function Icon({ name, size = 44 }) {
   );
 }
 
-// المخلوق: بيضة ثم صغير ثم كبير، بيتنفس وبيبتسم لما تخلّص كل عادات اليوم
-function Pip({ level, happy }) {
+// رسم الحيوان الأليف + الإكسسوارات والملابس
+function PetAvatar({ petId, accessoryId, happy, size = 96 }) {
   const bob = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
-      Animated.timing(bob, { toValue: -5, duration: 1100, useNativeDriver: true }),
+      Animated.timing(bob, { toValue: -4, duration: 1100, useNativeDriver: true }),
       Animated.timing(bob, { toValue: 0, duration: 1100, useNativeDriver: true }),
     ]));
     loop.start();
     return () => loop.stop();
   }, [bob]);
-  const K = ['G', 'B', 'P', 'K', 'Y', 'R'][(level - 1) % 6];
-  const g = `url(#g${K})`;
-  const st = level < 2 ? 0 : level < 5 ? 1 : 2;
-  const big = st === 2;
-  const rx = big ? 34 : 27, ry = big ? 32 : 25, cy = big ? 58 : 64;
-  const ey = big ? 58 : 62, ex = big ? 12 : 10, er = big ? 6 : 5.5, my = ey + 14;
+
+  const pet = PETS.find((p) => p.id === petId) || PETS[0];
+  const acc = WARDROBE.find((w) => w.id === accessoryId) || WARDROBE[0];
+  const fillUrl = `url(#g${pet.body})`;
+  const strokeMain = pet.body === 'W' ? '#8c94b8' : INK;
+
   return (
     <Animated.View style={{ transform: [{ translateY: bob }] }}>
-      <Svg width={92} height={92} viewBox="0 0 100 100">
+      <Svg width={size} height={size} viewBox="0 0 100 100">
         <Grads />
-        <Ellipse cx="50" cy="94" rx="26" ry="4" fill="#000" opacity="0.2" />
-        {st === 0 ? (<>
-          <Ellipse cx="50" cy="58" rx="26" ry="33" fill="url(#gW)" />
-          <Circle cx="40" cy="48" r="5" fill={g} />
-          <Circle cx="58" cy="62" r="7" fill={g} />
-          <Circle cx="44" cy="76" r="4" fill={g} />
-          <Path d="M30 46l8 6 6-7 7 8 6-6 8 5" stroke={INK} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.55" />
-        </>) : (<>
-          <Ellipse cx="50" cy={cy} rx={rx} ry={ry} fill={g} />
-          <Ellipse cx={50 - rx * 0.3} cy={cy - ry * 0.45} rx={rx * 0.28} ry={ry * 0.18} fill="#fff" opacity="0.45" />
-          {big && (<>
-            <Path d="M50 27c-2-8 2-13 9-14" stroke="#0f9d6b" strokeWidth="3" strokeLinecap="round" fill="none" />
-            <Ellipse cx="62" cy="13" rx="7" ry="4" fill="url(#gG)" />
-          </>)}
-          <Circle cx={50 - rx * 0.62} cy={cy + ry * 0.3} r="4" fill="#ff7aa8" opacity="0.5" />
-          <Circle cx={50 + rx * 0.62} cy={cy + ry * 0.3} r="4" fill="#ff7aa8" opacity="0.5" />
-          <Circle cx={50 - ex} cy={ey} r={er} fill="#fff" />
-          <Circle cx={50 + ex} cy={ey} r={er} fill="#fff" />
-          <Circle cx={51 - ex} cy={ey + 1} r={er * 0.5} fill={INK} />
-          <Circle cx={51 + ex} cy={ey + 1} r={er * 0.5} fill={INK} />
-          {happy
-            ? <Path d={`M40 ${my}q10 13 20 0Z`} fill={INK} />
-            : <Path d={`M42 ${my + 2}q8 5 16 0`} stroke={INK} strokeWidth="3" strokeLinecap="round" fill="none" />}
+        <Ellipse cx="50" cy="93" rx="26" ry="4" fill="#000" opacity="0.2" />
+
+        {/* الأذنين / القرون */}
+        {pet.ear === 'point' && (<>
+          <Path d="M26 42L22 18L40 32Z" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
+          <Path d="M74 42L78 18L60 32Z" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
         </>)}
+        {pet.ear === 'flop' && (<>
+          <Ellipse cx="22" cy="54" rx="9" ry="18" fill={fillUrl} stroke={strokeMain} strokeWidth="2" transform="rotate(12 22 54)" />
+          <Ellipse cx="78" cy="54" rx="9" ry="18" fill={fillUrl} stroke={strokeMain} strokeWidth="2" transform="rotate(-12 78 54)" />
+        </>)}
+        {pet.ear === 'long' && (<>
+          <Ellipse cx="36" cy="24" rx="7" ry="19" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
+          <Ellipse cx="64" cy="24" rx="7" ry="19" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
+          <Ellipse cx="36" cy="25" rx="3" ry="12" fill={pet.accent} opacity="0.65" />
+          <Ellipse cx="64" cy="25" rx="3" ry="12" fill={pet.accent} opacity="0.65" />
+        </>)}
+        {pet.ear === 'round' && (<>
+          <Circle cx="27" cy="31" r="10" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
+          <Circle cx="73" cy="31" r="10" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
+        </>)}
+        {pet.ear === 'tuft' && (<>
+          <Path d="M26 36L20 22L36 30Z" fill={fillUrl} />
+          <Path d="M74 36L80 22L64 30Z" fill={fillUrl} />
+        </>)}
+        {pet.ear === 'horn' && (<>
+          <Path d="M50 26L45 8L56 24Z" fill="#ffd54a" stroke={INK} strokeWidth="1.8" />
+          <Circle cx="28" cy="34" r="7" fill={fillUrl} />
+          <Circle cx="72" cy="34" r="7" fill={fillUrl} />
+        </>)}
+
+        {/* جسم ورأس الحيوان */}
+        <Ellipse cx="50" cy="58" rx="30" ry="28" fill={fillUrl} stroke={strokeMain} strokeWidth="2" />
+        <Ellipse cx="40" cy="41" rx="8" ry="4.5" fill="#fff" opacity="0.4" />
+
+        {/* بقع الباندا أو البطريق */}
+        {pet.id === 'panda' && (<>
+          <Circle cx="38" cy="54" r="7" fill={INK} />
+          <Circle cx="62" cy="54" r="7" fill={INK} />
+        </>)}
+
+        {/* الخدود */}
+        <Circle cx="31" cy="64" r="4.5" fill={pet.accent} opacity="0.7" />
+        <Circle cx="69" cy="64" r="4.5" fill={pet.accent} opacity="0.7" />
+
+        {/* العينين والفم */}
+        {acc.id === 'glasses' ? (
+          <G>
+            <Rect x="31" y="48" width="15" height="11" rx="4" fill="#1d1b3a" stroke="#fff" strokeWidth="2" />
+            <Rect x="54" y="48" width="15" height="11" rx="4" fill="#1d1b3a" stroke="#fff" strokeWidth="2" />
+            <Path d="M46 53h8" stroke="#fff" strokeWidth="2.5" />
+          </G>
+        ) : (<>
+          <Circle cx="39" cy="54" r="5" fill="#fff" />
+          <Circle cx="61" cy="54" r="5" fill="#fff" />
+          <Circle cx="40" cy="55" r="2.7" fill={INK} />
+          <Circle cx="62" cy="55" r="2.7" fill={INK} />
+        </>)}
+
+        {happy
+          ? <Path d="M42 66q8 11 16 0Z" fill={INK} />
+          : <Path d="M43 67q7 5 14 0" stroke={INK} strokeWidth="2.8" strokeLinecap="round" fill="none" />}
+
+        {/* إكسسوارات الرقبة / الملابس */}
+        {acc.slot === 'neck' && (
+          <G>
+            <Rect x="28" y="80" width="44" height="9" rx="4.5" fill={acc.color} stroke={INK} strokeWidth="1.8" />
+            {acc.id === 'bowtie' && (
+              <Path d="M42 84L34 79v10l8-5zm16 0l8-5v10l-8-5z" fill="#ff9ccf" stroke={INK} strokeWidth="1.5" />
+            )}
+          </G>
+        )}
+
+        {/* إكسسوارات الرأس */}
+        {acc.id === 'hat' && (
+          <Path d="M50 8L33 32h34L50 8Z" fill={acc.color} stroke={INK} strokeWidth="2" strokeLinejoin="round" />
+        )}
+        {acc.id === 'crown' && (
+          <Path d="M32 30l5-14 13 8 13-8 5 14H32Z" fill={acc.color} stroke={INK} strokeWidth="2" strokeLinejoin="round" />
+        )}
       </Svg>
     </Animated.View>
   );
 }
 
-function Card({ h, idx, th, today, onTap, onLong }) {
+function Card({ h, idx, today, onTap, onLong }) {
   const c = h.days[today] || 0;
   const fin = c >= h.t;
   const s = streak(h);
@@ -197,10 +311,15 @@ export default function App() {
   const th = dark
     ? { bg: '#17152e', card: '#24214a', ink: '#eceaff', mute: '#a3a0cc', field: '#1a1838' }
     : { bg: '#eceaff', card: '#ffffff', ink: INK, mute: '#6d6a96', field: '#f1efff' };
+
   const [habits, setHabits] = useState([]);
+  const [petState, setPetState] = useState({ activePet: 'cat', activeAcc: 'none', unlockedAcc: ['none'], spentPts: 0 });
   const [ready, setReady] = useState(false);
+
   const [add, setAdd] = useState(false);
   const [imp, setImp] = useState(false);
+  const [petModal, setPetModal] = useState(false);
+
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('drop');
   const [cnt, setCnt] = useState(1);
@@ -208,11 +327,61 @@ export default function App() {
   const today = dk(back(0));
 
   useEffect(() => {
-    AsyncStorage.getItem(KEY).then((r) => { if (r) setHabits(JSON.parse(r)); }).catch(() => {}).finally(() => setReady(true));
+    Promise.all([AsyncStorage.getItem(KEY), AsyncStorage.getItem(PET_KEY)])
+      .then(([rHabits, rPets]) => {
+        if (rHabits) setHabits(JSON.parse(rHabits));
+        if (rPets) setPetState((prev) => ({ ...prev, ...JSON.parse(rPets) }));
+      })
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
+
   useEffect(() => {
     if (ready) AsyncStorage.setItem(KEY, JSON.stringify(habits)).catch(() => {});
   }, [habits, ready]);
+
+  useEffect(() => {
+    if (ready) AsyncStorage.setItem(PET_KEY, JSON.stringify(petState)).catch(() => {});
+  }, [petState, ready]);
+
+  // استقبال رابط مشاركة عادات لو التطبيق اتفتح من لينك
+  const applySharedHabits = (mapped) => {
+    setHabits((hs) => [...hs, ...mapped]);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert('تمت إضافة العادات', `اتضافت ${mapped.length} عادة من اللينك بنجاح من غير ما تتأثر عاداتك القديمة.`);
+  };
+
+  useEffect(() => {
+    const handleUrl = ({ url }) => {
+      if (!url || (!url.includes('d=') && !url.includes('share'))) return;
+      try {
+        const mapped = decodeHabitsPayload(url);
+        Alert.alert('مشاركة عادات', `تم العثور على ${mapped.length} عادة في الرابط. تحب تضيفهم عندك؟`, [
+          { text: 'إلغاء', style: 'cancel' },
+          { text: 'إضافة العادات', onPress: () => applySharedHabits(mapped) },
+        ]);
+      } catch (_) {}
+    };
+    Linking.getInitialURL().then((u) => { if (u) handleUrl({ url: u }); }).catch(() => {});
+    const sub = Linking.addEventListener('url', handleUrl);
+    return () => sub.remove();
+  }, []);
+
+  const shareHabitsLink = async () => {
+    if (!habits.length) {
+      Alert.alert('مفيش عادات', 'أضف عادة واحدة على الأقل الأول عشان تقدر تشاركها بلينك.');
+      return;
+    }
+    const payload = encodeHabitsPayload(habits);
+    const link = `expohabits://share?d=${payload}`;
+    try {
+      Haptics.selectionAsync();
+      await Share.share({
+        message: `جرّب نفس العادات اللي شغال عليها في تطبيق عاداتي:\n${link}`,
+        url: link,
+      });
+    } catch (_) {}
+  };
 
   const tap = (h) => {
     const c = h.days[today] || 0;
@@ -227,6 +396,7 @@ export default function App() {
     }
     setHabits((hs) => hs.map((x) => (x.id === h.id ? { ...x, days } : x)));
   };
+
   const longPress = (h) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Alert.alert('حذف عادة', `تحذف "${h.name}"؟`, [
@@ -234,6 +404,7 @@ export default function App() {
       { text: 'أيوه', style: 'destructive', onPress: () => setHabits((hs) => hs.filter((x) => x.id !== h.id)) },
     ]);
   };
+
   const save = () => {
     const n = name.trim();
     if (!n) return;
@@ -241,26 +412,15 @@ export default function App() {
     setName(''); setCnt(1); setAdd(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
+
   const doImport = () => {
     try {
-      const o = JSON.parse(txt.trim());
-      const list = Array.isArray(o) ? o : o.habits;
-      if (!Array.isArray(list)) throw new Error('bad');
-      let skipped = 0;
-      const mapped = [];
-      list.forEach((h) => {
-        if (h.k) { skipped++; return; } // الأنواع الخاصة جاية في النسخة التانية
-        mapped.push({
-          id: h.id || uid(), name: String(h.name || '').slice(0, 30) || 'عادة',
-          e: NAMES.includes(h.e) ? h.e : (EMO[h.e] || 'star'),
-          c: h.c || 0, t: Math.max(1, parseInt(h.t, 10) || 1), days: h.days || {},
-        });
-      });
-      setHabits((hs) => [...hs, ...mapped]);
-      setImp(false); setTxt('');
-      Alert.alert('تم الاستيراد', `اتضافت ${mapped.length} عادة${skipped ? `، وتخطّيت ${skipped} من الأنواع الخاصة (بتجنّبها، بقيمة، روتين)` : ''}.`);
+      const mapped = decodeHabitsPayload(txt);
+      setImp(false);
+      setTxt('');
+      applySharedHabits(mapped);
     } catch (e) {
-      Alert.alert('خطأ', 'النص ده مش نسخة احتياطية صحيحة.');
+      Alert.alert('خطأ', 'اللينك أو النص ده غير صالح. تأكد إنك نسخت اللينك كامل.');
     }
   };
 
@@ -270,33 +430,77 @@ export default function App() {
     Object.keys(h.days).forEach((k) => { tot += h.days[k]; });
   });
   const L = lvl(tot), cu = 10 * (L - 1) * (L - 1), nx = 10 * L * L;
+  const totalPts = tot * 10;
+  const availablePts = Math.max(0, totalPts - (petState.spentPts || 0));
+
+  const currentPetObj = PETS.find((p) => p.id === petState.activePet) || PETS[0];
+  const effectivePetId = L >= currentPetObj.unlockLvl ? currentPetObj.id : 'cat';
+
+  const handleSelectPet = (pet) => {
+    if (L < pet.unlockLvl) {
+      Alert.alert('مقفول حالياً', `الحيوان "${pet.name}" بيفتح لما توصل لمستوى ${pet.unlockLvl}.`);
+      return;
+    }
+    Haptics.selectionAsync();
+    setPetState((prev) => ({ ...prev, activePet: pet.id }));
+  };
+
+  const handleAccessoryAction = (item) => {
+    const alreadyUnlocked = petState.unlockedAcc.includes(item.id);
+    if (alreadyUnlocked) {
+      Haptics.selectionAsync();
+      setPetState((prev) => ({ ...prev, activeAcc: item.id }));
+      return;
+    }
+    if (availablePts < item.cost) {
+      Alert.alert('نقاط غير كافية', `محتاج ${item.cost} نقطة متاحة لفتح "${item.name}" (معاك ${availablePts} نقطة).`);
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setPetState((prev) => ({
+      ...prev,
+      spentPts: (prev.spentPts || 0) + item.cost,
+      unlockedAcc: [...prev.unlockedAcc, item.id],
+      activeAcc: item.id,
+    }));
+  };
 
   return (
     <SafeAreaView style={[st.flex, { backgroundColor: th.bg, paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 }]}>
       <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
         <Text style={[st.h1, { color: th.ink }]}>عاداتي</Text>
-        <View style={[st.hero, { backgroundColor: th.ink }]}>
+
+        {/* بانر الحيوان الأليف والليفل */}
+        <Pressable onPress={() => { Haptics.selectionAsync(); setPetModal(true); }} style={[st.hero, { backgroundColor: th.ink }]}>
           <View style={st.row}>
-            <Pip level={L} happy={act > 0 && done === act} />
+            <PetAvatar petId={effectivePetId} accessoryId={petState.activeAcc} happy={act > 0 && done === act} size={96} />
             <View style={{ flex: 1, marginHorizontal: 12 }}>
               <Text style={[st.heroTxt, { color: th.bg }]}>
                 {!act ? 'ابدأ بأول عادة' : done === act ? 'خلّصت كل حاجة النهارده!' : `خلّصت ${done} من ${act} النهارده`}
               </Text>
               <View style={st.bar}><View style={[st.barFill, { width: `${act ? (done / act) * 100 : 0}%`, backgroundColor: '#ffd54a' }]} /></View>
-              <Text style={[st.lvTxt, { color: th.bg }]}>مستوى {L} · {tot * 10} نقطة</Text>
-              <View style={st.bar}><View style={[st.barFill, { width: `${((tot - cu) / (nx - cu)) * 100}%`, backgroundColor: '#5fe0b7' }]} /></View>
+              <Text style={[st.lvTxt, { color: th.bg }]}>
+                مستوى {L} · {availablePts} نقطة متاحة
+              </Text>
+              <View style={st.bar}><View style={[st.barFill, { width: `${Math.min(100, Math.max(0, ((tot - cu) / Math.max(1, nx - cu)) * 100))}%`, backgroundColor: '#5fe0b7' }]} /></View>
+              <Text style={st.petHint}>🐾 الحيوانات والملابس (اضغط للتبديل)</Text>
             </View>
           </View>
-        </View>
+        </Pressable>
 
         {habits.map((h, i) => (
-          <Card key={h.id} h={h} idx={i} th={th} today={today} onTap={tap} onLong={longPress} />
+          <Card key={h.id} h={h} idx={i} today={today} onTap={tap} onLong={longPress} />
         ))}
         {!habits.length && <Text style={[st.empty, { color: th.mute }]}>مفيش عادات لسه. دوس على الزرار الأصفر تحت.</Text>}
 
+        {/* مشاركة واستيراد العادات بلينك */}
+        <Pressable onPress={shareHabitsLink} style={[st.shareBtn, { backgroundColor: th.card, borderColor: th.ink }]}>
+          <Text style={[st.shareTxt, { color: th.ink }]}>🔗 مشاركة عاداتي بلينك</Text>
+        </Pressable>
+
         <Pressable onPress={() => setImp(true)} style={[st.link]}>
-          <Text style={{ color: th.mute, fontWeight: '700' }}>استيراد من نسخة الويب</Text>
+          <Text style={{ color: th.mute, fontWeight: '700' }}>استيراد عادات من لينك أو كود</Text>
         </Pressable>
         <Text style={[st.dev, { color: th.mute }]}>تطوير: محمد سامح</Text>
       </ScrollView>
@@ -305,6 +509,72 @@ export default function App() {
         <Text style={st.fabTxt}>＋ عادة جديدة</Text>
       </Pressable>
 
+      {/* مودال الحيوانات العشرة والملابس */}
+      <Modal visible={petModal} transparent animationType="slide" onRequestClose={() => setPetModal(false)}>
+        <View style={st.back}>
+          <View style={[st.sheet, { backgroundColor: th.card, maxHeight: '88%' }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[st.h2, { color: th.ink }]}>الحيوانات الأليفة والملابس</Text>
+              <Text style={[st.subNote, { color: th.mute }]}>مستواك الحالي: {L} · نقاطك المتاحة: {availablePts}</Text>
+
+              <Text style={[st.lab, { color: th.mute }]}>اختار حيوانك (١٠ حيوانات مع الليفيل)</Text>
+              <View style={st.wrap}>
+                {PETS.map((p) => {
+                  const unlocked = L >= p.unlockLvl;
+                  const selected = effectivePetId === p.id;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => handleSelectPet(p)}
+                      style={[
+                        st.petTile,
+                        { backgroundColor: th.field, opacity: unlocked ? 1 : 0.55 },
+                        selected && { borderColor: th.ink, borderWidth: 2.5 },
+                      ]}
+                    >
+                      <PetAvatar petId={p.id} accessoryId={selected ? petState.activeAcc : 'none'} happy={unlocked} size={58} />
+                      <Text style={[st.tileTitle, { color: th.ink }]} numberOfLines={1}>{p.name}</Text>
+                      <Text style={[st.tileSub, { color: unlocked ? '#0f9d6b' : th.mute }]}>
+                        {unlocked ? (selected ? 'مفعّل' : 'مفتوح') : `مستوى ${p.unlockLvl}`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[st.lab, { color: th.mute }]}>إكسسوارات وملابس</Text>
+              <View style={st.wrap}>
+                {WARDROBE.map((item) => {
+                  const unlocked = petState.unlockedAcc.includes(item.id);
+                  const equipped = petState.activeAcc === item.id;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => handleAccessoryAction(item)}
+                      style={[
+                        st.accTile,
+                        { backgroundColor: th.field },
+                        equipped && { borderColor: th.ink, borderWidth: 2.5 },
+                      ]}
+                    >
+                      <Text style={[st.tileTitle, { color: th.ink }]}>{item.name}</Text>
+                      <Text style={[st.tileSub, { color: equipped ? '#1f6fe0' : th.mute }]}>
+                        {equipped ? 'مرتديه ✓' : unlocked ? 'ارتداء' : `${item.cost} نقطة`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Pressable onPress={() => setPetModal(false)} style={[st.go, { backgroundColor: th.ink }]}>
+                <Text style={[st.goTxt, { color: th.bg }]}>تم</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* مودال إضافة عادة جديدة */}
       <Modal visible={add} transparent animationType="slide" onRequestClose={() => setAdd(false)}>
         <View style={st.back}>
           <View style={[st.sheet, { backgroundColor: th.card }]}>
@@ -332,14 +602,15 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* مودال استيراد العادات من لينك أو كود */}
       <Modal visible={imp} transparent animationType="slide" onRequestClose={() => setImp(false)}>
         <View style={st.back}>
           <View style={[st.sheet, { backgroundColor: th.card }]}>
-            <Text style={[st.h2, { color: th.ink }]}>استيراد من نسخة الويب</Text>
-            <Text style={[st.lab, { color: th.mute }]}>في نسخة الويب: 📊 ثم انسخ. الصق النص هنا.</Text>
-            <TextInput value={txt} onChangeText={setTxt} multiline placeholder="الصق النسخة الاحتياطية" placeholderTextColor={th.mute}
-              style={[st.input, { backgroundColor: th.field, color: th.ink, height: 120, textAlignVertical: 'top' }]} />
-            <Pressable onPress={doImport} style={[st.go, { backgroundColor: th.ink }]}><Text style={[st.goTxt, { color: th.bg }]}>استيراد</Text></Pressable>
+            <Text style={[st.h2, { color: th.ink }]}>استيراد عادات من لينك</Text>
+            <Text style={[st.lab, { color: th.mute }]}>الصق لينك المشاركة هنا عشان تضيف العادات عندك:</Text>
+            <TextInput value={txt} onChangeText={setTxt} multiline placeholder="expohabits://share?d=..." placeholderTextColor={th.mute}
+              style={[st.input, { backgroundColor: th.field, color: th.ink, height: 110, textAlignVertical: 'top' }]} />
+            <Pressable onPress={doImport} style={[st.go, { backgroundColor: th.ink }]}><Text style={[st.goTxt, { color: th.bg }]}>إضافة العادات</Text></Pressable>
             <Pressable onPress={() => setImp(false)} style={st.link}><Text style={{ color: th.mute, fontWeight: '700' }}>إلغاء</Text></Pressable>
           </View>
         </View>
@@ -352,13 +623,15 @@ const sh = { shadowColor: '#1d1b3a', shadowOpacity: 0.3, shadowRadius: 0, shadow
 const st = StyleSheet.create({
   flex: { flex: 1 },
   h1: { fontSize: 34, fontWeight: '800', textAlign: 'right', marginBottom: 12 },
-  h2: { fontSize: 22, fontWeight: '800', textAlign: 'right', marginBottom: 12 },
-  lab: { fontSize: 15, fontWeight: '700', textAlign: 'right', marginTop: 14, marginBottom: 6 },
+  h2: { fontSize: 22, fontWeight: '800', textAlign: 'right', marginBottom: 6 },
+  subNote: { fontSize: 14, fontWeight: '700', textAlign: 'right', marginBottom: 4 },
+  lab: { fontSize: 15, fontWeight: '700', textAlign: 'right', marginTop: 14, marginBottom: 8 },
   row: { flexDirection: 'row-reverse', alignItems: 'center' },
   wrap: { flexDirection: 'row-reverse', flexWrap: 'wrap', gap: 8 },
   hero: { borderRadius: 28, padding: 16, marginBottom: 18, ...sh },
   heroTxt: { fontSize: 18, fontWeight: '700', textAlign: 'right', marginBottom: 8 },
   lvTxt: { fontSize: 14, fontWeight: '700', textAlign: 'right', marginTop: 10, marginBottom: 6 },
+  petHint: { fontSize: 12, fontWeight: '700', color: '#ffd54a', textAlign: 'right', marginTop: 6 },
   bar: { height: 12, borderRadius: 12, backgroundColor: 'rgba(128,128,160,0.35)', overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 12 },
   card: { borderRadius: 28, padding: 16, marginBottom: 18, ...sh },
@@ -374,8 +647,10 @@ const st = StyleSheet.create({
   wdTxt: { fontSize: 13, fontWeight: '700', color: INK },
   today: { borderWidth: 2, borderColor: INK },
   empty: { textAlign: 'center', fontSize: 18, padding: 30 },
-  link: { alignItems: 'center', padding: 14 },
-  dev: { textAlign: 'center', fontSize: 14, fontWeight: '700', marginTop: 8 },
+  shareBtn: { marginTop: 8, paddingVertical: 14, paddingHorizontal: 18, borderRadius: 20, borderWidth: 2, alignItems: 'center' },
+  shareTxt: { fontSize: 16, fontWeight: '800' },
+  link: { alignItems: 'center', padding: 12 },
+  dev: { textAlign: 'center', fontSize: 14, fontWeight: '700', marginTop: 4 },
   fab: { position: 'absolute', alignSelf: 'center', bottom: 28, height: 60, borderRadius: 30, paddingHorizontal: 28, backgroundColor: '#ffd54a', alignItems: 'center', justifyContent: 'center', ...sh },
   fabDown: { transform: [{ translateY: 4 }] },
   fabTxt: { fontSize: 20, fontWeight: '800', color: INK },
@@ -383,6 +658,10 @@ const st = StyleSheet.create({
   sheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, paddingBottom: 36 },
   input: { borderRadius: 16, padding: 14, fontSize: 17, textAlign: 'right' },
   ib: { width: 52, height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  petTile: { width: '31%', borderRadius: 18, padding: 8, alignItems: 'center' },
+  accTile: { width: '47%', borderRadius: 16, padding: 12, alignItems: 'center' },
+  tileTitle: { fontSize: 13, fontWeight: '800', marginTop: 2, textAlign: 'center' },
+  tileSub: { fontSize: 11, fontWeight: '700', marginTop: 2 },
   step: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   stepTxt: { fontSize: 26, fontWeight: '800' },
   cnt: { fontSize: 28, fontWeight: '800', minWidth: 60, textAlign: 'center' },
